@@ -121,13 +121,17 @@ En el código, `packet.messageid` y `packet.payload` son exactamente estos dos c
 
 El intercambio confirmable normal de esta práctica:
 
-```mermaid
-sequenceDiagram
-    participant C as Cliente CoAP
-    participant E as ESP32 (servidor)
-    C->>E: 1. CON, GET /sensor, Message ID = 0x7A3F
-    E->>C: 2. ACK, 2.05 Content, mismo Message ID, payload: Temp: 26.2 C
-    Note over C,E: 3. Si el ACK no llega, el cliente reenvía el CON (mismo Message ID).<br/>El servidor reconoce el duplicado por el Message ID y no procesa la petición dos veces.
+```
+Cliente CoAP                              ESP32 (servidor)
+    |  1. CON, GET /sensor, Message ID = 0x7A3F   |
+    |-------------------------------------------->|
+    |  2. ACK, 2.05 Content, mismo Message ID     |
+    |     payload: Temp: 26.2 C                   |
+    |<--------------------------------------------|
+    |  3. Si el ACK no llega, el cliente reenvía  |
+    |     el CON con el mismo Message ID. El      |
+    |     servidor reconoce el duplicado y no     |
+    |     procesa la petición dos veces.          |
 ```
 
 ### 3.4 Métodos y códigos de respuesta
@@ -140,14 +144,15 @@ Los métodos son los de REST: `GET` lee un recurso, `POST` crea o procesa, `PUT`
 
 En el laboratorio hay tres protagonistas: el cliente (tu computadora), la red Wi-Fi (que solo transporta datagramas UDP) y la ESP32 (que escucha, decide qué recurso se pidió y responde). Dentro de la ESP32, la librería CoAPSimple hace de repartidor: mira la ruta de la petición y llama a la función *callback* que registraste para esa ruta.
 
-```mermaid
-flowchart LR
-    C[Cliente CoAP<br/>PC / navegador / Python<br/>GET /sensor] -->|UDP, puerto 5683<br/>sin conexión previa| R[Router Wi-Fi<br/>Red 2.4 GHz]
-    R --> E[ESP32 - Servidor CoAP<br/>WiFiUDP escucha en 5683<br/>coap.loop(): recibe y despacha]
-    E --> S[callback_sensor()<br/>/sensor]
-    E --> L[callback_led()<br/>/led]
-    S --> M[Monitor Serie<br/>115200 baudios]
-    L --> M
+```
+CLIENTE CoAP                 ROUTER Wi-Fi              ESP32 - SERVIDOR CoAP
+PC / navegador / Python      Red 2.4 GHz               WiFiUDP escucha en el puerto 5683
+GET /sensor                  Entrega datagramas        coap.loop() recibe y despacha peticiones
+                             UDP puerto 5683
+coap://192.168.1.50                                     /sensor                  /led
+/sensor                                                 callback_sensor()        callback_led()
+
+                                                                               Monitor Serie a 115200 baudios
 ```
 
 > Observa que el router no interpreta CoAP: solo entrega datagramas UDP entre dos direcciones IP.
@@ -183,11 +188,23 @@ flowchart LR
 
 ### ¿Cómo se organiza el programa? `setup()` y `loop()`
 
-```mermaid
-flowchart TD
-    A[ENCENDIDO / RST<br/>se ejecuta una vez] --> B[setup()<br/>1. Inicia el puerto serie<br/>2. Conecta el Wi-Fi<br/>3. Registra /sensor y /led<br/>4. Arranca el servidor (puerto 5683)]
-    B --> C[loop()<br/>coap.loop() escucha:<br/>¿llegó un datagrama?<br/>Sí: ejecuta el callback y responde.<br/>No: sigue.]
-    C --> C
+```
+ENCENDIDO / RST
+se ejecuta una vez
+        |
+        v
+setup()
+  1. Inicia el puerto serie
+  2. Conecta el Wi-Fi
+  3. Registra /sensor y /led
+  4. Arranca el servidor (puerto 5683)
+        |
+        v
+loop()  -- se repite para siempre --
+  coap.loop() escucha:
+  ¿llegó un datagrama?
+  Sí: ejecuta el callback y responde.
+  No: sigue.
 ```
 
 **Error clásico:** poner un `delay()` largo o un ciclo pesado dentro de `loop()`. Mientras ese código corre, nadie llama a `coap.loop()` y las peticiones se pierden. En esta práctica, `loop()` debe quedar prácticamente vacío.
